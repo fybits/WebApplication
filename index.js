@@ -1,5 +1,6 @@
 const express = require('express')
 const cookieParser = require('cookie-parser')
+const bodyParser = require('body-parser')
 const crypto = require('crypto')
 const MongoClient = require('mongodb').MongoClient
 
@@ -9,26 +10,58 @@ const port = 8000;
 
 const app = express()
 app.use(cookieParser())
+app.use(bodyParser.urlencoded({'extended': true}))
 
 app.get('/', (request, response) => {
     console.log("User connected!")
-    if (!request.cookies['userid']) {
-        let userid = crypto.randomBytes(20).toString('hex')
+    if (!request.cookies || request.cookies['userid'] == '') {
+        response.send('<form method="POST" action="register"><input name="nickname" value=""/><input value="Register" type="submit"/></form>')
+    } else {
         mongoClient.connect((err, client) => {
             const db = client.db('admin')
             const collection = db.collection('users')
-            collection.insertOne({'userid': userid})
-
-            mongoClient.close()
+            collection.findOne({'userid': request.cookies['userid']}, (err, result) => {
+                if (err) {
+                    console.log(err)
+                    response.send(err)
+                } else {
+                    console.log(result)
+                    response.send(`<p>Welcome, ${result['nickname']}!</p><a href="/exit">exit</a>`)
+                }
+                client.close()
+            })
         })
-        response.cookie("userid", userid)
     }
     console.log("remote address: "+request.ip)
     console.log("cookies: "+JSON.stringify(request.cookies))
     
-    response.send("Hello world from express!")
+    //response.send("Hello world from express!")
 })
 
+app.get('/exit', (request,response) => {
+    response.cookie("userid", '')
+    response.redirect('/')
+
+})
+
+app.post('/register', (request,response) => {
+    let userid = crypto.randomBytes(20).toString('hex')
+    mongoClient.connect((err, client) => {
+        const db = client.db('admin')
+        const collection = db.collection('users')
+        collection.findOne({'nickname': request.body['nickname']}, (err, result) => {
+            console.log(result)
+            if (result){
+                response.send('<p>Name already occupied!</p><a href="/">try again</a>')
+            } else {
+                response.cookie("userid", userid)
+                collection.insertOne({'userid': userid, 'nickname': request.body['nickname']})
+                response.redirect('/')
+            }
+        })
+        client.close()
+    })
+})
 
 app.listen(8000, (err) => {
     if (err) {
